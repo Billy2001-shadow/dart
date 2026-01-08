@@ -2,9 +2,13 @@ import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from timm.models import create_model
+
+from .camera_embed import DenseCameraEmbedder
+from .daa import DAAStage
+from .sfh import ScaleFormerHead
 from .util.blocks import FeatureFusionBlock, _make_scratch
 from network import tinyvim
-from timm.models import create_model
 
 def _make_fusion_block(features, use_bn, size=None):
     return FeatureFusionBlock(
@@ -87,6 +91,7 @@ class TinyVimDepth(nn.Module):
         encoder_out_channels=[48, 64, 168, 224], # encoder 各阶段通道数
         use_bn=False, 
         max_depth=10.0,  
+        use_daa_sfh: bool = True,
     ):
         super(TinyVimDepth, self).__init__()
       
@@ -102,18 +107,36 @@ class TinyVimDepth(nn.Module):
             out_channels=encoder_out_channels,
             use_bn=use_bn,
         )
+        self.use_daa_sfh = use_daa_sfh
+        if self.use_daa_sfh:
+            intrinsic = torch.tensor([[525.0, 0.0, 319.5], [0.0, 525.0, 239.5], [0.0, 0.0, 1.0]])
+            self.cam_embedder = DenseCameraEmbedder(intrinsic)
+            self.daa3 = DAAStage(channels=encoder_out_channels[2])
+            self.daa4 = DAAStage(channels=encoder_out_channels[3])
+            self.sfh = ScaleFormerHead(in_dim=encoder_out_channels[3])
         
         self.max_depth = max_depth
 
     def forward(self, x):
         # 提取四层特征  [b,48,120,160]、[b, 64, 60, 80]、[b, 168, 30, 40]、[b, 224, 15, 20]
-        features = self.pretrained(x)  
+        features = list(self.pretrained(x))
+
+        if self.use_daa_sfh:
+            _, _, cam16, cam32 = self.cam_embedder(x.shape[-2], x.shape[-1], device=x.device)
+            features[2] = self.daa3(features[2], cam16)
+            features[3] = self.daa4(features[3], cam32)
 
         depth = self.depth_head(
             features=features,
             size_h=x.shape[-2],
             size_w=x.shape[-1],
-        ) * self.max_depth
+        ) 
+
+        if self.use_daa_sfh:
+            scale = self.sfh(features[3], cam32)  # (B,1)
+            depth = depth * scale.view(-1, 1, 1, 1) * self.max_depth
+        else:
+            depth = depth * self.max_depth
         
         return depth.squeeze(1)
         

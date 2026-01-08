@@ -84,6 +84,16 @@ def main():
 
         # 在加载权重后添加以下代码
         print("\n=== Pretrained Weight Verification ===")
+
+    # 根据配置决定是否冻结 backbone
+    if getattr(args, "freeze_backbone", False):
+        frozen = 0
+        for name, param in model.named_parameters():
+            if 'pretrained' in name:
+                param.requires_grad = False
+                frozen += param.numel()
+        logger.info(f"Backbone frozen, params frozen: {frozen:,}")
+
     model.to(device)
     pretrained_params, head_params, total_params = count_parameters(model)
     logger.info(f"Model Parameters Summary:")
@@ -95,11 +105,16 @@ def main():
     ###################################################################  Loss &&  Optimizer  ###########################################################
     criterion = SiLogLoss().to(device)
 
-    optimizer = AdamW(
-        [{'params': [param for name, param in model.named_parameters() if 'pretrained' in name], 'lr': args.lr},
-            {'params': [param for name, param in model.named_parameters() if 'pretrained' not in name],
-            'lr': args.lr * 10.0}],
-        lr=args.lr, betas=(0.9, 0.999), weight_decay=0.01)
+    backbone_params = [param for name, param in model.named_parameters() if 'pretrained' in name and param.requires_grad]
+    head_params = [param for name, param in model.named_parameters() if 'pretrained' not in name and param.requires_grad]
+
+    param_groups = []
+    if backbone_params:
+        param_groups.append({'params': backbone_params, 'lr': args.lr, 'name': 'backbone'})
+    if head_params:
+        param_groups.append({'params': head_params, 'lr': args.lr * 10.0, 'name': 'head'})
+
+    optimizer = AdamW(param_groups, lr=args.lr, betas=(0.9, 0.999), weight_decay=0.01)
 
     # 打印可训练参数信息
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -152,9 +167,11 @@ def main():
 
             lr = args.lr * (1 - iters / total_iters) ** 0.9
 
-
-            optimizer.param_groups[0]["lr"] = lr
-            optimizer.param_groups[1]["lr"] = lr * 10.0
+            for g in optimizer.param_groups:
+                if g.get('name') == 'backbone':
+                    g["lr"] = lr
+                else:
+                    g["lr"] = lr * 10.0
 
             writer.add_scalar('train/loss', loss.item(), iters)
 
