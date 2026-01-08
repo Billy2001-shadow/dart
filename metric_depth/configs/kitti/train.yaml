@@ -1,0 +1,31 @@
+# network setting
+use_ray_enhancement: false
+adapter_module: cross_attention
+activation: all
+nums_head: 1
+hidden_dim: 128
+
+# train setting
+img_size: 448
+workers: 120
+batch_size: 192
+epochs: 120
+lr: 0.00005
+min_depth: 0.01
+max_depth: 80
+seed: 12
+
+# save path setting - 使用占位符
+# save_path: "exp/{adapter_module}/{activation}"
+# log_directory: "train_logs/{adapter_module}/{activation}"
+save_path_template: "exp/kitti/{module_part}/{activation}"
+log_directory_template: "train_logs/kitti/{module_part}/{activation}"
+
+# dataloader setting
+dataset: "KITTI"
+trainset_path: "dataset/splits/kitti/train.txt"
+valset_path: "dataset/splits/kitti/val.txt"
+
+# model weights load setting
+pretrained_from: "checkpoints/relative/latest_epoch_83.pth"
+resume: null
