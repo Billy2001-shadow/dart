@@ -45,7 +45,7 @@ def main():
     
     if args.dataset == 'NYUD':
         size = (args.img_w, args.img_h)
-        trainset = NYUD(args.trainset_path, 'train', size=size)
+        trainset = NYUD(args.trainset_path, 'train', size=size,augment_camera_intrinsics=args.augment_camera_intrinsics)
         trainloader = DataLoader(trainset, batch_size=args.batch_size, pin_memory=True, num_workers=args.workers,
                                  drop_last=True)
         valset = NYUD(args.valset_path, 'val', size=size)
