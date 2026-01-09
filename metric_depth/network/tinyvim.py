@@ -255,6 +255,42 @@ class TinyViM(nn.Module):
         # For image classification
         return cls_out
 
+    def forward_tokens_with_adapters(self, x, adapters=None, cams=None):
+        """
+        adapters: list of 4 adapters (or None) for each stage output (H/4,H/8,H/16,H/32)
+        cams: list of 4 camera embeddings aligned to adapters.
+        """
+        stage_feats = []
+        stage_idx = 0
+        for idx, block in enumerate(self.network):
+            x = block(x)
+            if isinstance(block, nn.Sequential):
+                if adapters is not None and stage_idx < len(adapters) and adapters[stage_idx] is not None:
+                    cam = cams[stage_idx] if cams is not None else None
+                    x = adapters[stage_idx](x, cam) if cam is not None else adapters[stage_idx](x, x.new_zeros(1, 1, 1, 1))
+                if self.fork_feat and idx in self.out_indices:
+                    norm_layer = getattr(self, f'norm{idx}')
+                    stage_feats.append(norm_layer(x))
+                stage_idx += 1
+        return stage_feats
+
+    def forward_with_adapters(self, x, adapters=None, cams=None):
+        x = self.patch_embed(x)
+        if self.fork_feat:
+            return self.forward_tokens_with_adapters(x, adapters=adapters, cams=cams)
+
+        feats = self.forward_tokens_with_adapters(x, adapters=adapters, cams=cams)
+
+        x = self.norm(x)
+        if self.dist:
+            cls_out = self.head(x.flatten(2).mean(-1)), self.dist_head(x.flatten(2).mean(-1))
+            if not self.training:
+                cls_out = (cls_out[0] + cls_out[1]) / 2
+        else:
+            cls_out = self.head(x.flatten(2).mean(-1))
+        # For image classification
+        return cls_out
+
 
 def _cfg(url='', **kwargs):
     return {

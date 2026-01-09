@@ -115,6 +115,8 @@ class TinyVimDepth(nn.Module):
             intrinsic = torch.tensor([[525.0, 0.0, 319.5], [0.0, 525.0, 239.5], [0.0, 0.0, 1.0]]) # NYUDs
             self.cam_embedder = DenseCameraEmbedder(intrinsic, cam_dims=cam_dims)
         if self.use_daa:
+            self.daa1 = DAAStage(channels=encoder_out_channels[0], cam_dim=cam_dims[0])
+            self.daa2 = DAAStage(channels=encoder_out_channels[1], cam_dim=cam_dims[1])
             self.daa3 = DAAStage(channels=encoder_out_channels[2], cam_dim=cam_dims[2])
             self.daa4 = DAAStage(channels=encoder_out_channels[3], cam_dim=cam_dims[3])
         if self.use_daa_sfh:
@@ -124,16 +126,16 @@ class TinyVimDepth(nn.Module):
 
     def forward(self, x):
         # 提取四层特征  [b,48,120,160]、[b, 64, 60, 80]、[b, 168, 30, 40]、[b, 224, 15, 20]
-        features = list(self.pretrained(x))
-
-        cam16 = cam32 = None
         if self.use_daa:
-            _, _, cam16, cam32 = self.cam_embedder(x.shape[-2], x.shape[-1], device=x.device)
-            features[2] = self.daa3(features[2], cam16)
-            features[3] = self.daa4(features[3], cam32)
-        elif self.use_daa_sfh:
-            # still need cam for SFH
-            _, _, _, cam32 = self.cam_embedder(x.shape[-2], x.shape[-1], device=x.device)
+            cam4, cam8, cam16, cam32 = self.cam_embedder(x.shape[-2], x.shape[-1], device=x.device)
+            adapters = [self.daa1, self.daa2, self.daa3, self.daa4]
+            cams = [cam4, cam8, cam16, cam32]
+            features = self.pretrained.forward_with_adapters(x, adapters=adapters, cams=cams)
+        else:
+            features = list(self.pretrained(x))
+            cam32 = None
+            if self.use_daa_sfh:
+                _, _, _, cam32 = self.cam_embedder(x.shape[-2], x.shape[-1], device=x.device)
 
         depth = self.depth_head(
             features=features,
