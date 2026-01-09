@@ -91,7 +91,9 @@ class TinyVimDepth(nn.Module):
         encoder_out_channels=[48, 64, 168, 224], # encoder 各阶段通道数
         use_bn=False, 
         max_depth=10.0,  
+        use_daa: bool = True,
         use_daa_sfh: bool = True,
+        cam_dims=(256, 256, 256, 256),
     ):
         super(TinyVimDepth, self).__init__()
       
@@ -107,13 +109,16 @@ class TinyVimDepth(nn.Module):
             out_channels=encoder_out_channels,
             use_bn=use_bn,
         )
+        self.use_daa = use_daa
         self.use_daa_sfh = use_daa_sfh
+        if self.use_daa or self.use_daa_sfh:
+            intrinsic = torch.tensor([[525.0, 0.0, 319.5], [0.0, 525.0, 239.5], [0.0, 0.0, 1.0]]) # NYUDs
+            self.cam_embedder = DenseCameraEmbedder(intrinsic, cam_dims=cam_dims)
+        if self.use_daa:
+            self.daa3 = DAAStage(channels=encoder_out_channels[2], cam_dim=cam_dims[2])
+            self.daa4 = DAAStage(channels=encoder_out_channels[3], cam_dim=cam_dims[3])
         if self.use_daa_sfh:
-            intrinsic = torch.tensor([[525.0, 0.0, 319.5], [0.0, 525.0, 239.5], [0.0, 0.0, 1.0]])
-            self.cam_embedder = DenseCameraEmbedder(intrinsic)
-            self.daa3 = DAAStage(channels=encoder_out_channels[2])
-            self.daa4 = DAAStage(channels=encoder_out_channels[3])
-            self.sfh = ScaleFormerHead(in_dim=encoder_out_channels[3])
+            self.sfh = ScaleFormerHead(in_dim=encoder_out_channels[3], cam_dim=cam_dims[3])
         
         self.max_depth = max_depth
 
@@ -121,10 +126,14 @@ class TinyVimDepth(nn.Module):
         # 提取四层特征  [b,48,120,160]、[b, 64, 60, 80]、[b, 168, 30, 40]、[b, 224, 15, 20]
         features = list(self.pretrained(x))
 
-        if self.use_daa_sfh:
+        cam16 = cam32 = None
+        if self.use_daa:
             _, _, cam16, cam32 = self.cam_embedder(x.shape[-2], x.shape[-1], device=x.device)
             features[2] = self.daa3(features[2], cam16)
             features[3] = self.daa4(features[3], cam32)
+        elif self.use_daa_sfh:
+            # still need cam for SFH
+            _, _, _, cam32 = self.cam_embedder(x.shape[-2], x.shape[-1], device=x.device)
 
         depth = self.depth_head(
             features=features,

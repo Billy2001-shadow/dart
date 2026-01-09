@@ -2,7 +2,7 @@
 img_w: 640
 img_h: 480
 workers: 32
-batch_size: 32
+batch_size: 10
 epochs: 40
 lr: 0.00001
 min_depth: 0.01

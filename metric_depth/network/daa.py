@@ -9,11 +9,11 @@ class DAAStage(nn.Module):
     Uses low-rank query (A,B) to attend to image tokens and camera embeddings.
     """
 
-    def __init__(self, channels: int, cam_dim: int = 81, num_queries: int = 64, rank: int = 8):
+    def __init__(self, channels: int, cam_dim: int = 256, num_queries: int = 64, rank: int = 8):
         super().__init__()
         self.A = nn.Parameter(torch.randn(num_queries, rank) * 0.01)
         self.B = nn.Parameter(torch.randn(rank, channels) * 0.01)
-        self.proj_cam = nn.Linear(cam_dim, channels, bias=False)
+        self.proj_cam = nn.Linear(cam_dim, channels, bias=False) # 需要查一下cam_dim是81？还是256？
         self.proj_out = nn.Linear(channels, channels)
         nn.init.zeros_(self.proj_out.weight)
 

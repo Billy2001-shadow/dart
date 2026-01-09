@@ -11,7 +11,7 @@ class ScaleFormerHead(nn.Module):
     def __init__(
         self,
         in_dim: int,
-        cam_dim: int = 81,
+        cam_dim: int = 256,
         d_model: int = 128,
         nhead: int = 4,
         num_queries: int = 8,
