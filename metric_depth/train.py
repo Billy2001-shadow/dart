@@ -15,6 +15,8 @@ from dataset.nyud import NYUD  # 训练集
 from dataset.kitti import get_kitti_loader
 
 from network.dpt import TinyVimDepth
+from network.daa import DAAStage
+from network.sfh import ScaleFormerHead
 from util.loss import SiLogLoss
 from util.metric import eval_depth
 from util.config_loader import load_config
@@ -100,6 +102,12 @@ def main():
     logger.info(f"Pretrained (TinyViM) parameters: {pretrained_params:,}")
     logger.info(f"Depth Head parameters: {head_params:,}")
     logger.info(f"Total parameters: {total_params:,}")
+
+    # 统计 DAA 和 SFH 参数
+    daa_params = sum(p.numel() for m in model.modules() if isinstance(m, DAAStage) for p in m.parameters())
+    sfh_params = sum(p.numel() for m in model.modules() if isinstance(m, ScaleFormerHead) for p in m.parameters())
+    logger.info(f"DAA modules parameters: {daa_params:,}")
+    logger.info(f"ScaleFormerHead parameters: {sfh_params:,}")
     ####################################################################################################################################################
 
     ###################################################################  Loss &&  Optimizer  ###########################################################
