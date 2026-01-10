@@ -45,24 +45,21 @@ def main():
 
     #################################################################### DataLoader ####################################################################
     
-    if args.dataset == 'NYUD':
-        size = (args.img_w, args.img_h)
-        trainset = NYUD(args.trainset_path, 'train', size=size,augment_camera_intrinsics=args.augment_camera_intrinsics)
-        trainloader = DataLoader(trainset, batch_size=args.batch_size, pin_memory=True, num_workers=args.workers,
-                                 drop_last=True)
-        valset = NYUD(args.valset_path, 'val', size=size)
-        valloader = DataLoader(valset, batch_size=1, pin_memory=True, num_workers=1, drop_last=True)
-    elif args.dataset == 'KITTI':
-        size = (args.img_size, args.img_size)
-        trainloader = get_kitti_loader(args.trainset_path, 'train', size=size) # torch.Size([16, 3, 448, 1472])
-        valloader = get_kitti_loader(args.valset_path,'val',size=size)
-        
-    else:
-        raise NotImplementedError
+
+    size = (args.img_w, args.img_h)
+    trainset = NYUD(args.trainset_path, 'train', size=size,augment_camera_intrinsics=args.augment_camera_intrinsics)
+    trainloader = DataLoader(trainset, batch_size=args.batch_size, pin_memory=True, num_workers=args.workers,
+                                drop_last=True)
+    nyu_valset = NYUD(args.nyu_valset_path, 'val', size=size)
+    nyu_valloader = DataLoader(nyu_valset, batch_size=1, pin_memory=True, num_workers=1, drop_last=True)
     #################################################################### DataLoader ####################################################################
 
     ###################################################################  Model Load ####################################################################
-    model = TinyVimDepth(max_depth=args.max_depth)  # 将模型移动到 GPU
+    model = TinyVimDepth(
+        max_depth=args.max_depth,
+        use_daa=args.module in ['dpt_daa', 'dpt_daa_sfh'],
+        use_daa_sfh=args.module in ['dpt_sfh', 'dpt_daa_sfh']   
+    )  # 将模型移动到 GPU
                          
                          
     if args.pretrained_from:
@@ -88,7 +85,7 @@ def main():
         print("\n=== Pretrained Weight Verification ===")
 
     # 根据配置决定是否冻结 backbone
-    if getattr(args, "freeze_backbone", False):
+    if args.activation == 'freeze_backbone_true':
         frozen = 0
         for name, param in model.named_parameters():
             if 'pretrained' in name:
@@ -194,7 +191,7 @@ def main():
                    'rmse_log': 0.0, 'log10': 0.0, 'silog': 0.0}
         nsamples = 0
 
-        for i, sample in enumerate(valloader):
+        for i, sample in enumerate(nyu_valloader):
             img, depth, valid_mask = sample['image'].cuda().float(), sample['depth'].cuda()[0], sample['valid_mask'].cuda()[0]
 
             with torch.no_grad():
@@ -202,12 +199,7 @@ def main():
                 pred = F.interpolate(pred[:, None], depth.shape[-2:], mode='bilinear', align_corners=True)[0, 0]
             
                 eigen_crop_mask = torch.zeros_like(depth, dtype=torch.bool, device=depth.device)
-                if args.dataset == 'NYUD':
-                    eigen_crop_mask[45: 471, 41: 601] = True
-                elif args.dataset == 'KITTI':
-                    eigen_crop_mask[153:371, 44:1197] = True # # (218, 1153)
-                else:
-                    raise NotImplementedError
+                eigen_crop_mask[45: 471, 41: 601] = True # nyud
                     
                 depth_mask  = (depth >= args.min_depth) & (depth <= args.max_depth)
                 valid_mask = eigen_crop_mask & depth_mask

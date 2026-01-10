@@ -13,7 +13,7 @@ class DAAStage(nn.Module):
         super().__init__()
         self.A = nn.Parameter(torch.randn(num_queries, rank) * 0.01)
         self.B = nn.Parameter(torch.randn(rank, channels) * 0.01)
-        self.proj_cam = nn.Linear(cam_dim, channels, bias=False) # 需要查一下cam_dim是81？还是256？
+        self.proj_cam = nn.Linear(cam_dim, channels, bias=False) 
         self.proj_out = nn.Linear(channels, channels)
         nn.init.zeros_(self.proj_out.weight)
 
@@ -26,7 +26,7 @@ class DAAStage(nn.Module):
         N = H * W
 
         tokens = feat.flatten(2).transpose(1, 2)  # (B, N, C)
-        cam = cam.expand(B, -1, -1, -1).flatten(2).transpose(1, 2)  # (B, N, CE)
+        cam = cam.expand(B, -1, -1, -1).flatten(2).transpose(1, 2)  # (1, CE, H, W) -> (B, CE, H, W) -> (B, N, CE)
 
         q = self.A @ self.B  # (Q, C)
         k_feat = tokens.transpose(1, 2)  # (B, C, N)

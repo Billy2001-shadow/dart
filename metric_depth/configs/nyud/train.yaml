@@ -2,21 +2,22 @@
 img_w: 640
 img_h: 480
 workers: 32
-batch_size: 10
-epochs: 40
-lr: 0.00001
+batch_size: 48 # 96
+epochs: 120
+lr: 0.00005
 min_depth: 0.01
 max_depth: 10
 seed: 12
-freeze_backbone: true
-augment_camera_intrinsics: true
-save_path_template: "exp/nyud/{module_part}/{activation}"
-log_directory_template: "train_logs/nyud/{module_part}/{activation}"
+augment_camera_intrinsics: false
+activation: freeze_backbone_false # freeze_backbone_false
+module: dpt_daa_sfh # dpt dpt_daa dpt_sfh dpt_daa_sfh 
 
+save_path_template: "exp/nyud/{module}/{activation}"
+log_directory_template: "train_logs/nyud/{module}/{activation}"
 # dataloader setting
 dataset: "NYUD"
 trainset_path: "dataset/splits/nyud/train.txt"
-valset_path: "dataset/splits/nyud/val.txt"
+nyu_valset_path: "dataset/splits/nyud/val.txt"
 
 # model weights load setting
 pretrained_from: "../checkpoints/relative/latest_epoch_83.pth"

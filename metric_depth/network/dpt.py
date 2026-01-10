@@ -9,6 +9,9 @@ from .daa import DAAStage
 from .sfh import ScaleFormerHead
 from .util.blocks import FeatureFusionBlock, _make_scratch
 from network import tinyvim
+from .util.blocks import FeatureFusionBlock, _make_scratch
+from .util.transform import Resize, NormalizeImage, PrepareForNet
+from torchvision.transforms import Compose
 
 def _make_fusion_block(features, use_bn, size=None):
     return FeatureFusionBlock(
@@ -91,9 +94,10 @@ class TinyVimDepth(nn.Module):
         encoder_out_channels=[48, 64, 168, 224], # encoder 各阶段通道数
         use_bn=False, 
         max_depth=10.0,  
-        use_daa: bool = True,
-        use_daa_sfh: bool = True,
+        use_daa: bool = False,
+        use_daa_sfh: bool = False,
         cam_dims=(256, 256, 256, 256),
+        intrinsic=None,
     ):
         super(TinyVimDepth, self).__init__()
       
@@ -112,8 +116,14 @@ class TinyVimDepth(nn.Module):
         self.use_daa = use_daa
         self.use_daa_sfh = use_daa_sfh
         if self.use_daa or self.use_daa_sfh:
-            intrinsic = torch.tensor([[525.0, 0.0, 319.5], [0.0, 525.0, 239.5], [0.0, 0.0, 1.0]]) # NYUDs
-            self.cam_embedder = DenseCameraEmbedder(intrinsic, cam_dims=cam_dims)
+            if intrinsic is None:
+                intrinsic = [[525.0, 0.0, 319.5], [0.0, 525.0, 239.5], [0.0, 0.0, 1.0]]
+            # 支持传入 [fx, fy, cx, cy] 或 3x3 矩阵
+            if isinstance(intrinsic, (list, tuple)) and len(intrinsic) == 4:
+                fx, fy, cx, cy = intrinsic
+                intrinsic = [[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]]
+            intrinsic_tensor = torch.tensor(intrinsic, dtype=torch.float32)
+            self.cam_embedder = DenseCameraEmbedder(intrinsic_tensor, cam_dims=cam_dims)
         if self.use_daa:
             self.daa1 = DAAStage(channels=encoder_out_channels[0], cam_dim=cam_dims[0])
             self.daa2 = DAAStage(channels=encoder_out_channels[1], cam_dim=cam_dims[1])
@@ -171,3 +181,40 @@ class TinyVimDepth(nn.Module):
             print(f"Missing keys: {missing_keys}")  
         if unexpected_keys:  
             print(f"Unexpected keys: {unexpected_keys}")
+
+    @torch.no_grad()
+    def infer_image(self, raw_image, input_size=518):
+        image, (h, w) = self.image2tensor(raw_image, input_size)
+        
+        depth = self.forward(image)
+        
+        depth = F.interpolate(depth[:, None], (h, w), mode="bilinear", align_corners=True)[0, 0]
+        
+        return depth.cpu().numpy()
+    
+    def image2tensor(self, raw_image, input_size=518):        
+        transform = Compose([
+            Resize(
+                width=input_size,
+                height=input_size,
+                resize_target=False,
+                keep_aspect_ratio=True,
+                ensure_multiple_of=32,
+                resize_method='lower_bound',
+                image_interpolation_method=cv2.INTER_CUBIC,
+            ),
+            NormalizeImage(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            PrepareForNet(),
+        ])
+        
+        h, w = raw_image.shape[:2]
+        
+        image = cv2.cvtColor(raw_image, cv2.COLOR_BGR2RGB) / 255.0
+        
+        image = transform({'image': image})['image']
+        image = torch.from_numpy(image).unsqueeze(0)
+        
+        DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
+        image = image.to(DEVICE)
+        
+        return image, (h, w)

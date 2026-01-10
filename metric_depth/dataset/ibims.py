@@ -41,9 +41,7 @@ class IBIMS(Dataset):
         
         mask_path = depth_path.replace('depth', 'mask_invalid')
         mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED).astype('float32')
-        
-        # auto_fov_fitting(image, depth, raw_fx, raw_fy)
-        
+                
         sample = self.transform({'image': image, 'depth': depth,'mask': mask})
 
         sample['image'] = torch.from_numpy(sample['image']) 

@@ -4,7 +4,9 @@
 /metric_depth/dataset/splits/
 /metric_depth/exp/
 /metric_depth/train_logs/
-
+*.log
+*.txt
+/metric_depth/vis_depth/
 *.pyc
 __pycache__/
 *.py[cod]
