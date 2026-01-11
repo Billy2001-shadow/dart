@@ -25,21 +25,6 @@ angles = torch.stack([polar, azimuth], dim=-1)
 ### generate_fourier_features
 通过将angles(包含极角和方位角)
 Fourier 特征把角度映射到高维、多频率的正弦基，使网络能更容易地利用相机几何信息（例如区分不同视场、不同像面位置的畸变），对下游 DAA/SFH 或 decoder 起到“相机先验提示”的作用。
-
-# 启动脚本
-CUDA_VISIBLE_DEVICES=0
-
-
-需要确认一下DepthFisheye中增强后的特征是如何流动的呢？我感觉现在只是在原有特征上进行增强，下层的特征并没有作为下一层的输入呀感觉(done)
-- 优化一下layer
-需要更新一下evaluate.py
-
-
-nohup python train.py > unfreeze_dpt.log 2>&1 &  # TODO
-nohup python train.py > unfreeze_dpt_daa_sfh.log 2>&1 & 
-
-
-
 # 网络结构
 ## Encoder（TinyViM + 4 个 stage 级 DAA 插入）
 
@@ -103,7 +88,11 @@ delta = att^T @ q
 改进1：单头 & 平均权重：无多头、多尺度；att_f/att_c 简单平均，无法自适应融合比例。 
 改进2：低秩查询固定：q 不随 token/context 调整，表达力有限，可能不足以补偿域差异。
 改进3：投影未零初始化/未共享
+改进4：原始特征和attention特征融合方案尝试：concat、add(作为残差的形式)、注意力融合
 
 
-太简单了：在cross-attention后面直接加了一个linear，cross-attention主要是把特征根据内参进行变换，在cross-attention后面直接加了一个linear（）
+在cross-attention后面直接加了一个linear，cross-attention主要是把特征根据内参进行变换，在cross-attention后面直接加了一个linear（）
 - proj_cam、proj_out设计是不是过于简单了呢？
+    - 改成深度可分离卷积的形式去进行空间特征提取+通道特征融合？（Depthwise 3×3用于提取空间特征，Pointwise 1×1用于融合通道特征）
+    - 深度可分离卷积通常指先做 3×3 depthwise（按通道独立、带空间感受野），再用 1×1 pointwise 做通道混合。
+    - 也可以省略 depthwise，只用 1×1；也可以只用 3×3 depthwise 做平滑不变通道数。

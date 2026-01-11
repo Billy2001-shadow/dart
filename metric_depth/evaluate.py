@@ -17,23 +17,28 @@ from util.utils import init_log,count_parameters
 from torch.utils.data import DataLoader
 # from dataset.nyu2 import get_nyud_loader
 from dataset.nyud import NYUD
-from dataset.kitti import get_kitti_loader
+
 from dataset.ibims import get_ibims_loader
 from dataset.sunrgbd import get_sunrgbd_loader
+from dataset.eth3d import get_eth3d_loader
+from dataset.diode import get_diode_loader
 
 parser = argparse.ArgumentParser(description='TinyVim Depth for Metric Depth Estimation')
 
-parser.add_argument('--dataset', default='SUNRGBD', help='测试数据集') # NYUD KITTI IBIMS SUNRGBD
+parser.add_argument('--dataset', default='IBIMS', help='测试数据集') # NYUD IBIMS SUNRGBD ETH3D DIODE
 parser.add_argument('--max_depth', type=int, default=10, help='最大深度')
-parser.add_argument('--weights', type=str,default="/home/chenwu/DART/dart/metric_depth/exp/nyud/dpt_daa_sfh/freeze_backbone_false/latest_epoch14.pth", help='权重文件') 
+# dpt_freeze /home/ldc/cw/dev/last_dance/dart/metric_depth/exp/nyud/dpt/freeze_backbone_true/latest_epoch96.pth
+# dpt_daa_sfh /home/ldc/cw/dev/last_dance/dart/metric_depth/exp/nyud/dpt_daa_sfh/freeze_backbone_true/CADP_wo_residual/latest_epoch46.pth
+parser.add_argument('--weights', type=str,default="/home/ldc/cw/dev/last_dance/dart/metric_depth/exp/nyud/dpt/freeze_backbone_true/best_d1.pth", help='权重文件') 
 
 parser.add_argument('--nyu_val', type=str,default="dataset/splits/nyud/val.txt", help='测试数据集索引文件')
-parser.add_argument('--kitti_val', type=str,default="dataset/splits/kitti/val.txt", help='测试数据集索引文件')
-parser.add_argument('--ibims_val', type=str,default="/home/chenwu/DART/dart/metric_depth/dataset/splits/zeroshot/ibims.txt", help='测试数据集索引文件')
-parser.add_argument('--sunrgbd_val', type=str,default="/home/chenwu/DART/dart/metric_depth/dataset/splits/zeroshot/sunrgbd.txt", help='测试数据集索引文件')
-
-# parser.add_argument('--intrinsic', type=list,default=[550.39, 548.55,319.5,239.5], help='测试数据集索引文件')
-parser.add_argument('--module', type=str,default='dpt_daa_sfh', help='选择模块 dpt | dpt_sfh | dpt_daa | dpt_daa_sfh')
+parser.add_argument('--ibims_val', type=str,default="dataset/splits/zeroshot/ibims.txt", help='测试数据集索引文件')
+parser.add_argument('--sunrgbd_val', type=str,default="dataset/splits/zeroshot/sunrgbd.txt", help='测试数据集索引文件')
+parser.add_argument('--eth3d_indoor_val', type=str,default="dataset/splits/zeroshot/eth3d_indoor.txt", help='测试数据集索引文件')
+parser.add_argument('--diode_indoor_val', type=str,default="dataset/splits/zeroshot/diode_indoor.txt", help='测试数据集索引文件')
+parser.add_argument('--intrinsic', type=list,default=[550.39, 548.55,319.5,239.5], help='测试数据集索引文件')
+parser.add_argument('--module', type=str,default='dpt', help='选择模块 dpt | dpt_sfh | dpt_daa | dpt_daa_sfh')
+parser.add_argument('--fusion_method', type=str,default='cross_attention', help='选择模块 cross_attention | additive | concat')
 
 args = parser.parse_args()
 
@@ -51,15 +56,18 @@ def main():
     if args.dataset == 'NYUD':
         img_w,img_h = 640,480
         min_depth,max_depth = 0.01,10
-    elif args.dataset == 'KITTI':
-        img_w,img_h = 448, 448
-        min_depth,max_depth = 0.01,80
     elif args.dataset == 'IBIMS':
         img_w,img_h = 640,480
         min_depth,max_depth = 0.01,10
     elif args.dataset == 'SUNRGBD':
-        img_w,img_h = 448,448
+        img_w,img_h = 640,480
         min_depth,max_depth = 0.01,10
+    elif args.dataset == 'ETH3D':
+        img_w,img_h = 640,480 # 448,448 ( 0.458,)
+        min_depth,max_depth = 0.01,10
+    elif args.dataset == 'DIODE':
+        img_w,img_h = 640,480   # (768, 1024) 
+        min_depth,max_depth = 0.6,80
     else:
         raise NotImplementedError
 #################################################################### DataLoader ####################################################################
@@ -67,12 +75,14 @@ def main():
     if args.dataset == 'NYUD':
         valset = NYUD(args.nyu_val, 'val', size=size)
         valloader = DataLoader(valset, batch_size=1, pin_memory=True, num_workers=1, drop_last=True)
-    elif args.dataset == 'KITTI':
-        valloader = get_kitti_loader(args.kitti_val,'val',size=size)
     elif args.dataset == 'IBIMS':
         valloader = get_ibims_loader(args.ibims_val,'val',size=size)
     elif args.dataset == 'SUNRGBD':
         valloader = get_sunrgbd_loader(args.sunrgbd_val,'val',size=size)
+    elif args.dataset == 'ETH3D':
+        valloader = get_eth3d_loader(args.eth3d_indoor_val,'val',size=size)
+    elif args.dataset == 'DIODE':
+        valloader = get_diode_loader(args.diode_indoor_val,'val',size=size)
     else:
         raise NotImplementedError
 #################################################################### DataLoader ####################################################################
@@ -82,7 +92,8 @@ def main():
         max_depth=args.max_depth,
         use_daa=args.module in ['dpt_daa', 'dpt_daa_sfh'],
         use_daa_sfh=args.module in ['dpt_sfh', 'dpt_daa_sfh'],
-        intrinsic= args.intrinsic if hasattr(args, 'intrinsic') else None
+        intrinsic= args.intrinsic if hasattr(args, 'intrinsic') else None,
+        fusion_method=args.fusion_method, 
     )  # 将模型移动到 GPU
     if args.weights:
         checkpoint = torch.load(args.weights, map_location='cpu')  
@@ -141,7 +152,7 @@ def main():
         elif args.dataset == 'KITTI':
             eigen_crop_mask[153:371, 44:1197] = True # # (218, 1153)
             depth_mask  = (depth >= min_depth) & (depth <= max_depth) & eigen_crop_mask
-        elif args.dataset == 'IBIMS' or args.dataset == 'SUNRGBD' or args.dataset =='DDAD':
+        elif args.dataset == 'IBIMS' or args.dataset == 'SUNRGBD' or args.dataset =='DDAD' or args.dataset == 'ETH3D' or args.dataset == 'DIODE':
             depth_mask = (depth >= min_depth) & (depth <= max_depth)
         else:
             raise NotImplementedError

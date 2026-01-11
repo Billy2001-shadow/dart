@@ -12,12 +12,13 @@ import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 from dataset.nyud import NYUD  # 训练集
+from dataset.ibims import IBIMS
 from dataset.kitti import get_kitti_loader
 
 from network.dpt import TinyVimDepth
 from network.daa import DAAStage
 from network.sfh import ScaleFormerHead
-from util.loss import SiLogLoss
+from util.loss import SiLogLoss,GradientLoss
 from util.metric import eval_depth
 from util.config_loader import load_config
 from util.utils import init_log, count_parameters
@@ -52,13 +53,16 @@ def main():
                                 drop_last=True)
     nyu_valset = NYUD(args.nyu_valset_path, 'val', size=size)
     nyu_valloader = DataLoader(nyu_valset, batch_size=1, pin_memory=True, num_workers=1, drop_last=True)
+    ibims_valset = IBIMS(args.ibims_valset_path, 'val', size=size)
+    ibims_valloader = DataLoader(ibims_valset, batch_size=1,pin_memory=True, num_workers=1, drop_last=True)
     #################################################################### DataLoader ####################################################################
 
     ###################################################################  Model Load ####################################################################
     model = TinyVimDepth(
         max_depth=args.max_depth,
         use_daa=args.module in ['dpt_daa', 'dpt_daa_sfh'],
-        use_daa_sfh=args.module in ['dpt_sfh', 'dpt_daa_sfh']   
+        use_daa_sfh=args.module in ['dpt_sfh', 'dpt_daa_sfh'],
+        fusion_method=args.fusion_method, 
     )  # 将模型移动到 GPU
                          
                          
@@ -109,7 +113,9 @@ def main():
 
     ###################################################################  Loss &&  Optimizer  ###########################################################
     criterion = SiLogLoss().to(device)
-
+    if args.gradient_loss_weight > 0:
+        gradientLoss = GradientLoss().to(device)
+    
     backbone_params = [param for name, param in model.named_parameters() if 'pretrained' in name and param.requires_grad]
     head_params = [param for name, param in model.named_parameters() if 'pretrained' not in name and param.requires_grad]
 
@@ -161,7 +167,11 @@ def main():
 
             pred = model(img)
 
-            loss = criterion(pred, depth, (valid_mask == 1) & (depth >= args.min_depth) & (depth <= args.max_depth))
+            mask = (valid_mask == 1) & (depth >= args.min_depth) & (depth <= args.max_depth)
+            if args.gradient_loss_weight > 0:
+                loss = criterion(pred, depth, mask) + args.gradient_loss_weight * gradientLoss(pred, depth, mask)
+            else:
+                loss = criterion(pred, depth, mask)
 
             loss.backward()
             optimizer.step()
@@ -187,6 +197,44 @@ def main():
         model.eval()
 
         results = {'d1': 0.0, 'd2': 0.0, 'd3': 0.0,
+            'abs_rel': 0.0, 'sq_rel': 0.0, 'rmse': 0.0,
+            'rmse_log': 0.0, 'log10': 0.0, 'silog': 0.0}
+        nsamples = 0
+
+        for i, sample in enumerate(ibims_valloader):
+            img, depth, valid_mask = sample['image'].cuda().float(), sample['depth'].cuda()[0], sample['valid_mask'].cuda()[0]
+
+            with torch.no_grad():
+                pred = model(img)
+                pred = F.interpolate(pred[:, None], depth.shape[-2:], mode='bilinear', align_corners=True)[0, 0]
+            
+                depth_mask  = (depth >= args.min_depth) & (depth <= args.max_depth)
+                valid_mask = valid_mask & depth_mask
+
+                if valid_mask.sum() < 10:
+                    continue
+
+                cur_results = eval_depth(pred[valid_mask], depth[valid_mask])
+
+                for k in results.keys():
+                    results[k] += cur_results[k]
+                nsamples += 1
+
+        # 计算平均指标
+        for k in results.keys():
+            results[k] /= nsamples
+
+        logger.info('==========================================================================================')
+        logger.info('{:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}, {:>8}'.format(*tuple(results.keys())))
+        logger.info('{:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}, {:8.3f}'.format(
+            *tuple([results[k] for k in results.keys()])))
+        logger.info('==========================================================================================')
+        print()
+        
+        
+        
+        
+        results = {'d1': 0.0, 'd2': 0.0, 'd3': 0.0,
                    'abs_rel': 0.0, 'sq_rel': 0.0, 'rmse': 0.0,
                    'rmse_log': 0.0, 'log10': 0.0, 'silog': 0.0}
         nsamples = 0
@@ -198,11 +246,9 @@ def main():
                 pred = model(img)
                 pred = F.interpolate(pred[:, None], depth.shape[-2:], mode='bilinear', align_corners=True)[0, 0]
             
-                eigen_crop_mask = torch.zeros_like(depth, dtype=torch.bool, device=depth.device)
-                eigen_crop_mask[45: 471, 41: 601] = True # nyud
                     
                 depth_mask  = (depth >= args.min_depth) & (depth <= args.max_depth)
-                valid_mask = eigen_crop_mask & depth_mask
+                valid_mask = valid_mask & depth_mask
 
                 if valid_mask.sum() < 10:
                     continue

@@ -6,7 +6,7 @@ from torch.utils.data import Dataset,DataLoader
 from torchvision.transforms import Compose
 
 from dataset.transform import Resize, NormalizeImage, PrepareForNet, Crop
-# from auto_fov_fitting import  auto_fov_fitting
+from auto_fov_fitting import  auto_fov_fitting
 
 class SUNRGBD(Dataset):
     def __init__(self, filelist_path, mode, size=(484, 484)):
