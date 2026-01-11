@@ -11,7 +11,7 @@ seed: 12
 augment_camera_intrinsics: false
 activation: freeze_backbone_false # freeze_backbone_false
 module: dpt_daa_sfh # dpt dpt_daa dpt_sfh dpt_daa_sfh 
-
+fusion_method: concat # cross_attention additive concat
 save_path_template: "exp/nyud/{module}/{activation}"
 log_directory_template: "train_logs/nyud/{module}/{activation}"
 # dataloader setting

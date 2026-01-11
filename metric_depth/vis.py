@@ -10,14 +10,15 @@ from network.dpt import TinyVimDepth
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Depth Anything V2')
+    parser = argparse.ArgumentParser(description='TinyVimDepth Depth Visualization')
     
-    parser.add_argument('--img-path', type=str,default='/home/chenwu/DART/dart/metric_depth/vis.txt', help='输入图像路径或包含图像路径的文本文件')
+    parser.add_argument('--img-path', type=str,default='vis.txt', help='输入图像路径或包含图像路径的文本文件')
     parser.add_argument('--input-size', type=int, default=480)
     parser.add_argument('--outdir', type=str, default='./vis_depth')
-    parser.add_argument('--weights', type=str,default="/home/chenwu/DART/dart/metric_depth/exp/nyud/dpt_daa_sfh/freeze_backbone_false/latest_epoch14.pth", help='权重文件')
+    parser.add_argument('--weights', type=str,default="exp/nyud/dpt_daa_sfh/freeze_backbone_true/cross_attention/best_d1.pth", help='权重文件')
     parser.add_argument('--max_depth', type=float, default=10.0)
     parser.add_argument('--module', type=str,default='dpt_daa_sfh', help='选择模块 dpt | dpt_sfh | dpt_daa | dpt_daa_sfh')
+    parser.add_argument('--fusion_method', type=str, default='cross_attention', help='融合方法')
 
     parser.add_argument('--pred-only', type=bool, default=True, help='only display the prediction')
     parser.add_argument('--grayscale', dest='grayscale', action='store_true', help='do not apply colorful palette')
@@ -30,7 +31,8 @@ if __name__ == '__main__':
         max_depth=args.max_depth,
         use_daa=args.module in ['dpt_daa', 'dpt_daa_sfh'],
         use_daa_sfh=args.module in ['dpt_sfh', 'dpt_daa_sfh'],
-        intrinsic= args.intrinsic if hasattr(args, 'intrinsic') else None
+        intrinsic= args.intrinsic if hasattr(args, 'intrinsic') else None,
+        fusion_method=args.fusion_method, 
     )  # 将模型移动到 GPU
     if args.weights:
         checkpoint = torch.load(args.weights, map_location='cpu')  
@@ -73,7 +75,7 @@ if __name__ == '__main__':
         
         raw_image = cv2.imread(filename)
         
-        depth = model.infer_image(raw_image, args.input_size)
+        depth = model.infer_image(raw_image, filename,args.input_size) 
         
         depth = (depth - depth.min()) / (depth.max() - depth.min()) * 255.0
         depth = depth.astype(np.uint8)

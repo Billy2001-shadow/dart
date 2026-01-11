@@ -9,7 +9,6 @@ from .daa import DAAStage
 from .sfh import ScaleFormerHead
 from .util.blocks import FeatureFusionBlock, _make_scratch
 from network import tinyvim
-from .util.blocks import FeatureFusionBlock, _make_scratch
 from .util.transform import Resize, NormalizeImage, PrepareForNet
 from torchvision.transforms import Compose
 
@@ -98,6 +97,7 @@ class TinyVimDepth(nn.Module):
         use_daa_sfh: bool = False,
         cam_dims=(256, 256, 256, 256),
         intrinsic=None,
+        fusion_method: str = 'concat',
     ):
         super(TinyVimDepth, self).__init__()
       
@@ -125,10 +125,10 @@ class TinyVimDepth(nn.Module):
             intrinsic_tensor = torch.tensor(intrinsic, dtype=torch.float32)
             self.cam_embedder = DenseCameraEmbedder(intrinsic_tensor, cam_dims=cam_dims)
         if self.use_daa:
-            self.daa1 = DAAStage(channels=encoder_out_channels[0], cam_dim=cam_dims[0])
-            self.daa2 = DAAStage(channels=encoder_out_channels[1], cam_dim=cam_dims[1])
-            self.daa3 = DAAStage(channels=encoder_out_channels[2], cam_dim=cam_dims[2])
-            self.daa4 = DAAStage(channels=encoder_out_channels[3], cam_dim=cam_dims[3])
+            self.daa1 = DAAStage(channels=encoder_out_channels[0], cam_dim=cam_dims[0], fusion_method=fusion_method)
+            self.daa2 = DAAStage(channels=encoder_out_channels[1], cam_dim=cam_dims[1], fusion_method=fusion_method)
+            self.daa3 = DAAStage(channels=encoder_out_channels[2], cam_dim=cam_dims[2], fusion_method=fusion_method)
+            self.daa4 = DAAStage(channels=encoder_out_channels[3], cam_dim=cam_dims[3], fusion_method=fusion_method)
         if self.use_daa_sfh:
             self.sfh = ScaleFormerHead(in_dim=encoder_out_channels[3], cam_dim=cam_dims[3])
         
@@ -158,7 +158,7 @@ class TinyVimDepth(nn.Module):
             depth = depth * scale.view(-1, 1, 1, 1) * self.max_depth
         else:
             depth = depth * self.max_depth
-        
+            
         return depth.squeeze(1)
         
     def load_pretrained(self, pretrained_path):  
@@ -183,8 +183,8 @@ class TinyVimDepth(nn.Module):
             print(f"Unexpected keys: {unexpected_keys}")
 
     @torch.no_grad()
-    def infer_image(self, raw_image, input_size=518):
-        image, (h, w) = self.image2tensor(raw_image, input_size)
+    def infer_image(self, raw_image, filename, input_size=518):
+        image, (h, w) = self.image2tensor(raw_image, filename,input_size)
         
         depth = self.forward(image)
         
@@ -192,7 +192,7 @@ class TinyVimDepth(nn.Module):
         
         return depth.cpu().numpy()
     
-    def image2tensor(self, raw_image, input_size=518):        
+    def image2tensor(self, raw_image, filename,input_size=518):        
         transform = Compose([
             Resize(
                 width=input_size,
@@ -210,6 +210,8 @@ class TinyVimDepth(nn.Module):
         h, w = raw_image.shape[:2]
         
         image = cv2.cvtColor(raw_image, cv2.COLOR_BGR2RGB) / 255.0
+        if 'nyu2_test' in filename: 
+            image = image[45:471, 41:601, :] 
         
         image = transform({'image': image})['image']
         image = torch.from_numpy(image).unsqueeze(0)
